@@ -17,3 +17,7 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Schema Models
+!backend/app/models/
+!backend/app/models/*.py
