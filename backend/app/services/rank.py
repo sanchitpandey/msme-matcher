@@ -1,51 +1,72 @@
 import lightgbm as lgb
 import numpy as np
-import os
-import sys
+import logging
+from typing import List, Dict, Any
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
+from app.core.config import settings
 from app.services.features import compute_features
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-MODEL_PATH = os.path.join(BASE_DIR, "models/ltr_model.txt")
+logger = logging.getLogger(__name__)
 
 _ranker = None
 
 def load_ranker():
     global _ranker
-    if os.path.exists(MODEL_PATH):
-        _ranker = lgb.Booster(model_file=MODEL_PATH)
-        print("LTR Ranker loaded.")
-    else:
-        print("LTR model not found. Run training/train_ltr.py")
+    if _ranker is not None:
+        return
 
-def re_rank_results(query_text, query_category, candidates):
+    if settings.LTR_MODEL_PATH.exists():
+        try:
+            _ranker = lgb.Booster(model_file=str(settings.LTR_MODEL_PATH))
+            logger.info("LTR Ranker loaded.")
+        except Exception as e:
+            logger.error(f"Failed to load LTR model: {e}")
+    else:
+        logger.warning(f"LTR model not found at {settings.LTR_MODEL_PATH}. Skipping re-ranking.")
+
+def re_rank_results(
+    query_text: str, 
+    query_category: str, 
+    candidates: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """
+    Re-orders retrieval candidates using LightGBM LambdaRank.
+    """
     if not candidates:
         return []
 
     if _ranker is None:
         load_ranker()
     
+    # Graceful fallback if model is missing
     if _ranker is None:
         return candidates 
 
-    X_pred = []
-    for cand in candidates:
-        sem_score = cand.get('score', 0.5)
+    try:
+        X_pred = []
+        for cand in candidates:
+            # Default score if missing (e.g., from pure keyword search)
+            sem_score = cand.get('score', 0.5)
+            
+            features = compute_features(query_text, query_category, cand, sem_score)
+            X_pred.append(features)
+            
+        X_pred_np = np.array(X_pred)
         
-        features = compute_features(query_text, query_category, cand, sem_score)
-        X_pred.append(features)
+        # Predict relevance scores
+        scores = _ranker.predict(X_pred_np)
         
-    X_pred = np.array(X_pred)
-    
-    scores = _ranker.predict(X_pred)
-    
-    ranked_candidates = []
-    for i, cand in enumerate(candidates):
-        cand['ltr_score'] = float(scores[i])
-        ranked_candidates.append(cand)
+        ranked_candidates = []
+        for i, cand in enumerate(candidates):
+            cand_copy = cand.copy() # Avoid mutating original list references
+            cand_copy['ltr_score'] = float(scores[i])
+            ranked_candidates.append(cand_copy)
+            
+        # Sort descending
+        ranked_candidates.sort(key=lambda x: x['ltr_score'], reverse=True)
         
-    ranked_candidates.sort(key=lambda x: x['ltr_score'], reverse=True)
-    
-    return ranked_candidates
+        return ranked_candidates
+
+    except Exception as e:
+        logger.error(f"Re-ranking failed: {e}")
+        return candidates

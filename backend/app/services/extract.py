@@ -1,5 +1,8 @@
 import re
-from typing import Dict, Any
+import logging
+from typing import Dict, Any, List
+
+logger = logging.getLogger(__name__)
 
 # PATTERNS
 PATTERNS = {
@@ -27,23 +30,27 @@ def extract_attributes(text: str) -> Dict[str, Any]:
     Example: "Steel plates 5mm, 2000kg/day" -> {"material": "Steel", "dims": "5mm", "capacity": "2000kg/day"}
     """
     text = text.lower()
-    attributes = {}
+    attributes: Dict[str, List[str]] = {}
 
-    # Regex Extraction
-    for key, regex_list in PATTERNS.items():
-        matches = []
-        for pattern in regex_list:
-            found = re.findall(pattern, text)
-            matches.extend(found)
-        
-        if matches:
-            # Deduplicate and clean
-            attributes[key] = list(set([m.strip() for m in matches]))
+    try:
+        # Regex Extraction
+        for key, regex_list in PATTERNS.items():
+            matches = []
+            for pattern in regex_list:
+                found = re.findall(pattern, text)
+                matches.extend(found)
+            
+            if matches:
+                # Deduplicate and clean
+                attributes[key] = list(set([m.strip() for m in matches]))
 
-    # Heuristic: Price Tier Guessing
-    if "premium" in text or "export quality" in text or "high precision" in text:
-        attributes["quality_signal"] = "High"
-    elif "cheap" in text or "low cost" in text:
-        attributes["quality_signal"] = "Economy"
+        # Heuristic: Price Tier Guessing
+        if "premium" in text or "export quality" in text or "high precision" in text:
+            attributes["quality_signal"] = ["High"]
+        elif "cheap" in text or "low cost" in text:
+            attributes["quality_signal"] = ["Economy"]
+
+    except Exception as e:
+        logger.error(f"Attribute extraction error: {e}")
 
     return attributes

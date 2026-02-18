@@ -1,39 +1,54 @@
 import pickle
-import os
+import logging
 import numpy as np
+from typing import Tuple
 from sentence_transformers import SentenceTransformer
 
-# --- PATHS ---
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-BACKEND_DIR = os.path.dirname(os.path.dirname(CURRENT_DIR))
-MODEL_PATH = os.path.join(BACKEND_DIR, "models", "category_classifier.pkl")
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 _model = None
 _embedder = None
 
 def load_classifier():
+    """Loads Logistic Regression model and SBERT embedder."""
     global _model, _embedder
-    if not os.path.exists(MODEL_PATH):
-        print(f"Classifier model not found at {MODEL_PATH}")
+    
+    if _model is not None:
         return
 
-    with open(MODEL_PATH, "rb") as f:
-        _model = pickle.load(f)
-    
-    _embedder = SentenceTransformer("all-MiniLM-L6-v2")
-    print("Classifier loaded.")
+    if not settings.CATEGORY_MODEL_PATH.exists():
+        logger.error(f"Classifier not found at {settings.CATEGORY_MODEL_PATH}")
+        return
 
-def predict_category(text: str):
+    try:
+        with open(settings.CATEGORY_MODEL_PATH, "rb") as f:
+            _model = pickle.load(f)
+        
+        # We reuse the SBERT model name from config
+        _embedder = SentenceTransformer(settings.SBERT_MODEL_NAME)
+        logger.info("Category Classifier loaded successfully.")
+    except Exception as e:
+        logger.exception(f"Error loading classifier: {e}")
+
+def predict_category(text: str) -> Tuple[str, float]:
+    """
+    Predicts product category from text.
+    Returns: (Category Name, Confidence Score)
+    """
     if _model is None:
         load_classifier()
     
-    if _model is None:
+    if _model is None or _embedder is None:
         return "Unknown", 0.0
 
-    embedding = _embedder.encode([text])
-    
-    category = _model.predict(embedding)[0]
-    probs = _model.predict_proba(embedding)[0]
-    confidence = float(np.max(probs))
-
-    return category, confidence
+    try:
+        embedding = _embedder.encode([text])
+        category = _model.predict(embedding)[0]
+        probs = _model.predict_proba(embedding)[0]
+        confidence = float(np.max(probs))
+        return category, confidence
+    except Exception as e:
+        logger.error(f"Prediction failed: {e}")
+        return "Unknown", 0.0
