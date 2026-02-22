@@ -4,12 +4,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from deep_translator import GoogleTranslator
 
 # Core & DB
 from app.core.config import settings
 from app.core.db import engine, Base, get_db
 from app.models.sql_models import SearchLog, Feedback
 from app.core.schemas import FeedbackCreate, MatchResponse, AnalyzeResponse
+from app.core.schemas_ondc import ONDCSearchRequest, ONDCOnSearchResponse
 
 # Services
 from app.services.retrieve import search, load_resources
@@ -17,7 +19,8 @@ from app.services.asr import transcribe_audio
 from app.services.extract import extract_attributes
 from app.services.classify import predict_category, load_classifier
 from app.services.rank import re_rank_results, load_ranker
-from app.services.features import extract_location_from_query
+from app.services.ondc_adapter import process_ondc_search
+from app.services.ocr import extract_text_from_image, build_auto_filled_form
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -50,7 +53,39 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    return {"message": "System Operational", "status": "online"}
+    return {
+        "system": "IndiaAI MSME Intelligent Mapping System",
+        "status": "operational",
+        "modules": [
+            "ASR Voice Registration",
+            "OCR Document Processing",
+            "Auto Form Filling",
+            "Product Classification",
+            "Semantic Matching",
+            "LTR Ranking",
+            "ONDC Integration",
+            "Feedback Learning"
+        ]
+    }
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+# --- ONDC ENDPOINT ---
+
+@app.post("/ondc/search", response_model=ONDCOnSearchResponse)
+async def ondc_search_endpoint(request: ONDCSearchRequest):
+    """
+    ONDC Adapter Endpoint.
+    Accepts ONDC Protocol JSON -> Returns ONDC Catalog JSON.
+    """
+    try:
+        response = process_ondc_search(request)
+        return response
+    except Exception as e:
+        logger.error(f"ONDC handler failed: {e}")
+        raise HTTPException(status_code=500, detail="ONDC Adapter Error")
 
 # --- AI ENDPOINTS ---
 
@@ -77,6 +112,45 @@ async def analyze_product(text: str = Form(...)):
         "extracted_attributes": attrs
     }
 
+@app.post(f"{settings.API_V1_STR}/ocr")
+async def ocr_endpoint(file: UploadFile = File(...)):
+    """
+    OCR + Auto Form Filling Endpoint.
+
+    Accepts:
+        GST certificate
+        product catalog
+        invoice image
+        factory document
+
+    Returns:
+        structured auto-filled MSME registration data.
+    """
+    if not file:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    try:
+        file_bytes = await file.read()
+
+        raw_text = extract_text_from_image(file_bytes)
+
+        if not raw_text:
+            return {
+                "status": "failed",
+                "message": "No readable text detected"
+            }
+
+        form = build_auto_filled_form(raw_text)
+
+        return {
+            "status": "success",
+            "auto_filled_form": form
+        }
+
+    except Exception as e:
+        logger.error(f"OCR endpoint failed: {e}")
+        raise HTTPException(status_code=500, detail="OCR processing failed")
+
 @app.post(f"{settings.API_V1_STR}/match", response_model=MatchResponse)
 async def match_endpoint(
     query: str = Form(...), 
@@ -84,10 +158,29 @@ async def match_endpoint(
 ):
     start = time.time()
     try:
+        search_query = query.strip()
+        try:
+            translated = GoogleTranslator(source='auto', target='en').translate(search_query)
+            
+            if translated and translated.lower() != search_query.lower():
+                logger.info(f"Text Translation Triggered: '{search_query}' -> '{translated}'")
+                search_query = translated
+        except Exception as e:
+            logger.warning(f"Text translation failed (falling back to original): {e}")
+        
         # 1. AI Pipeline
-        query_cat, conf = predict_category(query)
-        candidates = search(query, top_k=50)
-        ranked_results = re_rank_results(query, query_cat, candidates)
+        query_cat, conf = predict_category(search_query)
+        candidates = search(search_query, top_k=50)
+        # Category Filter
+        filtered = []
+        for c in candidates:
+            if query_cat.lower() in c.get("category", "").lower():
+                filtered.append(c)
+
+        # fallback if nothing matched
+        if filtered:
+            candidates = filtered
+        ranked_results = re_rank_results(search_query, query_cat, candidates)
         final_results = ranked_results[:10]
         
         # 2. Audit Logging

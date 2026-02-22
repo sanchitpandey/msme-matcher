@@ -54,3 +54,38 @@ def extract_attributes(text: str) -> Dict[str, Any]:
         logger.error(f"Attribute extraction error: {e}")
 
     return attributes
+
+def extract_basic_fields(text: str):
+    """
+    Extracts basic MSME registration fields from unstructured OCR text.
+    Heuristic based extraction for hackathon demo reliability.
+
+    Returns:
+        dict with business_name and location if detected.
+    """
+    result = {}
+
+    try:
+        lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+        if lines:
+            # first meaningful line often business name
+            result["business_name"] = lines[0][:120]
+
+        # location detection (basic)
+        cities = [
+            "delhi","mumbai","surat","bangalore","pune","hyderabad",
+            "chennai","ahmedabad","kolkata","noida","gurgaon",
+            "coimbatore","jaipur","lucknow","kanpur","indore"
+        ]
+
+        text_lower = text.lower()
+        for c in cities:
+            if c in text_lower:
+                result["location"] = c.title()
+                break
+
+    except Exception as e:
+        logger.error(f"Basic field extraction failed: {e}")
+
+    return result

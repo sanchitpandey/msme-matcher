@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 _model = None
 _embedder = None
 
+_KEYWORD_CATEGORY_MAP = {
+    "textile": "Textiles",
+    "fabric": "Textiles",
+    "cotton": "Textiles",
+    "silk": "Textiles",
+    "cnc": "Manufacturing (CNC, Metal)",
+    "lathe": "Manufacturing (CNC, Metal)",
+    "steel": "Manufacturing (CNC, Metal)",
+    "metal": "Manufacturing (CNC, Metal)",
+    "food": "Food Processing",
+    "packaging": "Food Processing",
+    "furniture": "Furniture",
+    "printing": "Printing & Packaging"
+}
+
 def load_classifier():
     """Loads Logistic Regression model and SBERT embedder."""
     global _model, _embedder
@@ -41,6 +56,10 @@ def predict_category(text: str) -> Tuple[str, float]:
         load_classifier()
     
     if _model is None or _embedder is None:
+        text_low = text.lower()
+        for k, v in _KEYWORD_CATEGORY_MAP.items():
+            if k in text_low:
+                return v, 0.60
         return "Unknown", 0.0
 
     try:

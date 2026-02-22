@@ -40,11 +40,11 @@ def compute_features(
     """
     try:
         # 1. Semantic Score
-        f_score = float(semantic_score)
+        f_score = float(semantic_score) * 2.0
         
         # 2. Category Match
         cand_cat = candidate.get("category", "")
-        f_cat_match = 1.0 if query_cat and cand_cat and query_cat.lower() == cand_cat.lower() else 0.0
+        f_cat_match = 1.5 if query_cat and cand_cat and query_cat.lower() == cand_cat.lower() else -1.0
         
         # 3. Capacity Score
         f_capacity = float(candidate.get("capacity_score", 0.5))

@@ -3,12 +3,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    # Application Info
     APP_NAME: str = "IndiaAI MSME Matching System"
     API_V1_STR: str = "/api"
     
-    # Paths (Computed relative to this file: backend/app/core/config.py)
-    # BASE_DIR points to 'backend/'
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
     
     DATA_DIR: Path = BASE_DIR / "data"

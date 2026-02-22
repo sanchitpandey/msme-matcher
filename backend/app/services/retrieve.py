@@ -67,16 +67,20 @@ def search(query: str, top_k: int = 50) -> List[Dict[str, Any]]:
         bm25_indices = np.argsort(bm25_scores)[::-1][:top_k]
 
         # 2. FAISS Search
-        query_emb = _sbert.encode([query], convert_to_numpy=True)
-        faiss.normalize_L2(query_emb)
-        
         faiss_indices = []
         faiss_scores = []
-        
-        if _faiss_index:
-            D, I = _faiss_index.search(query_emb, top_k)
-            faiss_indices = I[0]
-            faiss_scores = D[0]
+
+        try:
+            if _sbert is not None:
+                query_emb = _sbert.encode([query], convert_to_numpy=True)
+                faiss.normalize_L2(query_emb)
+
+                if _faiss_index is not None:
+                    D, I = _faiss_index.search(query_emb, top_k)
+                    faiss_indices = I[0]
+                    faiss_scores = D[0]
+        except Exception as e:
+            logger.warning(f"FAISS search skipped: {e}")
 
         # 3. Merge Results
         results_map = {}
@@ -99,7 +103,27 @@ def search(query: str, top_k: int = 50) -> List[Dict[str, Any]]:
                 item['source'] = 'keyword'
                 results_map[item['snp_id']] = item
 
-        return list(results_map.values())
+        final_list = list(results_map.values())
+        
+        query_low = query.lower()
+        domain_keywords = {
+            "packaging": ["pack", "box", "carton", "label"],
+            "textile": ["fabric", "yarn", "cotton", "loom"],
+            "cnc": ["cnc", "machining", "lathe"],
+            "food": ["food", "fssai", "snack"]
+        }
+        
+        for domain, words in domain_keywords.items():
+            if any(w in query_low for w in words):
+                filtered = []
+                for r in final_list:
+                    text = r.get("capability_text", "").lower()
+                    if any(w in text for w in words):
+                        filtered.append(r)
+                if filtered:
+                    return filtered
+                    
+        return final_list
 
     except Exception as e:
         logger.error(f"Search failed: {e}")

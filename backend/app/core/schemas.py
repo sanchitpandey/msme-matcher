@@ -1,14 +1,10 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-# --- Request Schemas ---
-
 class FeedbackCreate(BaseModel):
     search_id: int
     snp_id: str
     action: int  # 1=Positive, -1=Negative
-
-# --- Response Schemas ---
 
 class MatchResult(BaseModel):
     name: str
@@ -18,7 +14,10 @@ class MatchResult(BaseModel):
     capability_text: str
     score: float = 0.0
     ltr_score: float = 0.0
+    absolute_score: float = 0.0
     price_tier: Optional[str] = "Med"
+    capacity_score: Optional[float] = None
+    explain: Optional[Dict[str, Any]] = None
 
 class MatchResponse(BaseModel):
     search_id: int
